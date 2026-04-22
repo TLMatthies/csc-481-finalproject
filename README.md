@@ -1,6 +1,6 @@
-This repository is for the final project of CSC 481 Knowledge Based Systems.
+# CSC 481 Final Project
 
 ### Team Members: 
 - Briana Kirkman
 - Timothy Matthies
-- Pragati Toppo# csc-481-finalproject
+- Pragati Toppo
