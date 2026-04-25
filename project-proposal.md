@@ -65,7 +65,5 @@ There are a few options for validation. For a lower effort, internal testing met
 * Culturefest (clubs + performances):
   [https://www.instagram.com/calpoly_mcc/](https://www.instagram.com/calpoly_mcc/)
 
----
 
-If you want, I can also tighten the technical framing (e.g., clarify “RAG2,” formalize architecture, or make it sound more like a research proposal).
 
