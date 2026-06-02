@@ -48,6 +48,13 @@ Available rule predicates:
 - has_mentorship(Club)
 - competitive_travel(Club)
 
+Available comparison operators:
+- Hours =< 4
+- Hours >= 4
+- Hours < 4
+- Hours > 4
+- Value = expected_atom
+
 Useful examples:
 - club(Club, Name)
 - dance_style(Club, hip_hop), club(Club, Name)
@@ -86,11 +93,16 @@ allowed(recommend, 3).
 allowed(free_to_join, 1).
 allowed(has_mentorship, 1).
 allowed(competitive_travel, 1).
+allowed(=<, 2).
+allowed(>=, 2).
+allowed(<, 2).
+allowed(>, 2).
+allowed(=, 2).
 
-main([QueryAtom]) :-
-    catch(run_query(QueryAtom), Error, write_error(Error)).
 main(_) :-
-    write_error('Expected exactly one Prolog query argument.').
+    read_string(user_input, _, QueryString),
+    normalize_space(string(QueryAtom), QueryString),
+    catch(run_query(QueryAtom), Error, write_error(Error)).
 
 run_query(QueryAtom) :-
     read_term_from_atom(QueryAtom, Query, [variable_names(Names)]),
@@ -131,9 +143,16 @@ write_error(Error) :-
 
 
 @dataclass(frozen=True)
+class KBToolCall:
+    query: str
+    response: str
+
+
+@dataclass(frozen=True)
 class ChatResponse:
     content: str
     is_error: bool = False
+    tool_calls: tuple[KBToolCall, ...] = ()
 
 
 class ChatController:
@@ -169,6 +188,7 @@ class ChatController:
         self._requests: queue.Queue[tuple[str, int, str]] = queue.Queue()
         self._generation_lock = threading.Lock()
         self._generation = 0
+        self._kb_tool_calls: list[KBToolCall] = []
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._worker.start()
 
@@ -206,6 +226,17 @@ class ChatController:
         Returns:
             JSON rows containing variable bindings from the query.
         """
+        result = self._query_clubs_kb(prolog_query)
+        if hasattr(self, "_kb_tool_calls"):
+            self._kb_tool_calls.append(
+                KBToolCall(
+                    query=prolog_query.strip().rstrip("."),
+                    response=result,
+                )
+            )
+        return result
+
+    def _query_clubs_kb(self, prolog_query: str) -> str:
         query = prolog_query.strip().rstrip(".")
         if not query:
             return "No Prolog query was provided."
@@ -248,10 +279,9 @@ class ChatController:
                         str(self.kb_path),
                         "-s",
                         helper.name,
-                        "--",
-                        query,
                     ],
                     capture_output=True,
+                    input=query,
                     text=True,
                     timeout=5,
                     check=False,
@@ -343,10 +373,12 @@ class ChatController:
         try:
             if self._is_stale(generation):
                 return
+            self._kb_tool_calls = []
             content = self.llm.chat(message)
+            tool_calls = tuple(self._kb_tool_calls)
             if self._is_stale(generation):
                 return
-            self._responses.put(ChatResponse(content=content))
+            self._responses.put(ChatResponse(content=content, tool_calls=tool_calls))
         except Exception as exc:
             if self._is_stale(generation):
                 return

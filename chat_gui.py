@@ -6,13 +6,14 @@ import tkinter as tk
 from tkinter import font, scrolledtext, ttk
 from typing import Callable
 
-from chat_controller import ChatController
+from chat_controller import ChatController, KBToolCall
 
 
 class ChatGui:
     def __init__(self, controller: ChatController) -> None:
         self.controller = controller
         self.table_widgets: list[tk.Widget] = []
+        self.query_widgets: list[tk.Widget] = []
 
         self.root = tk.Tk()
         self.root.title(f"Ollama Chat - {self.controller.model}")
@@ -217,7 +218,7 @@ class ChatGui:
 
     def _poll_pending(self) -> None:
         for response in self.controller.get_responses():
-            self._append_assistant_message(response.content)
+            self._append_assistant_message(response.content, response.tool_calls)
             self._set_busy(False)
         self.root.after(100, self._poll_pending)
 
@@ -234,6 +235,9 @@ class ChatGui:
         for widget in self.table_widgets:
             widget.destroy()
         self.table_widgets.clear()
+        for widget in self.query_widgets:
+            widget.destroy()
+        self.query_widgets.clear()
         self.chat.configure(state=tk.NORMAL)
         self.chat.delete("1.0", tk.END)
         self.chat.configure(state=tk.DISABLED)
@@ -247,11 +251,23 @@ class ChatGui:
         self.chat.insert(tk.END, f"{message}\n\n", ("user", "user_bubble"))
         self.chat.see(tk.END)
 
-    def _append_assistant_message(self, message: str) -> None:
-        self._with_chat_enabled(lambda: self._insert_assistant_message(message))
+    def _append_assistant_message(
+        self,
+        message: str,
+        tool_calls: tuple[KBToolCall, ...] = (),
+    ) -> None:
+        self._with_chat_enabled(
+            lambda: self._insert_assistant_message(message, tool_calls)
+        )
 
-    def _insert_assistant_message(self, message: str) -> None:
+    def _insert_assistant_message(
+        self,
+        message: str,
+        tool_calls: tuple[KBToolCall, ...],
+    ) -> None:
         self.chat.insert(tk.END, "Assistant\n", ("name", "assistant"))
+        if tool_calls:
+            self._insert_query_dropdown(tool_calls, ("assistant", "assistant_bubble"))
         self._insert_markdown(message, ("assistant", "assistant_bubble"))
         self.chat.insert(tk.END, "\n")
         self.chat.see(tk.END)
@@ -260,6 +276,83 @@ class ChatGui:
         self.chat.configure(state=tk.NORMAL)
         callback()
         self.chat.configure(state=tk.DISABLED)
+
+    def _insert_query_dropdown(
+        self,
+        tool_calls: tuple[KBToolCall, ...],
+        base_tags: tuple[str, ...],
+    ) -> None:
+        panel = tk.Frame(
+            self.chat,
+            bg="#ffffff",
+            borderwidth=1,
+            relief=tk.SOLID,
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+        )
+        self.query_widgets.append(panel)
+
+        details = tk.Frame(panel, bg="#ffffff")
+        expanded = False
+
+        toggle = tk.Button(
+            panel,
+            text=f"+ Queries ({len(tool_calls)})",
+            anchor=tk.W,
+            bg="#f8fafc",
+            fg=self.colors["text"],
+            activebackground="#e2e8f0",
+            activeforeground=self.colors["text"],
+            borderwidth=0,
+            padx=10,
+            pady=7,
+            font=("TkDefaultFont", 10, "bold"),
+        )
+        toggle.pack(fill=tk.X)
+
+        def set_expanded(is_expanded: bool) -> None:
+            nonlocal expanded
+            expanded = is_expanded
+            if expanded:
+                details.pack(fill=tk.X, padx=8, pady=(0, 8))
+                toggle.configure(text=f"- Queries ({len(tool_calls)})")
+            else:
+                details.pack_forget()
+                toggle.configure(text=f"+ Queries ({len(tool_calls)})")
+
+        toggle.configure(command=lambda: set_expanded(not expanded))
+
+        for index, call in enumerate(tool_calls, start=1):
+            self._add_query_detail(details, f"Query {index}", call.query)
+            self._add_query_detail(details, f"Response {index}", call.response)
+
+        self.chat.insert(tk.END, "\n", base_tags)
+        self.chat.window_create(tk.END, window=panel, padx=28, pady=6)
+        self.chat.insert(tk.END, "\n", base_tags)
+
+    def _add_query_detail(self, parent: tk.Widget, title: str, body: str) -> None:
+        tk.Label(
+            parent,
+            text=title,
+            anchor=tk.W,
+            bg="#ffffff",
+            fg=self.colors["text"],
+            font=("TkDefaultFont", 10, "bold"),
+            pady=4,
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            parent,
+            text=body,
+            anchor=tk.NW,
+            justify=tk.LEFT,
+            bg=self.colors["code_bg"],
+            fg=self.colors["code_text"],
+            font=("TkFixedFont", 10),
+            padx=9,
+            pady=7,
+            wraplength=660,
+        ).pack(fill=tk.X, pady=(0, 8))
 
     def _insert_markdown(self, markdown: str, base_tags: tuple[str, ...]) -> None:
         in_code_block = False
