@@ -1,24 +1,21 @@
 from __future__ import annotations
 
 import argparse
-import queue
 import re
-import threading
 import tkinter as tk
 from tkinter import font, scrolledtext, ttk
 from typing import Callable
 
-from llm import LLM
+from chat_controller import ChatController
 
 
 class ChatGui:
-    def __init__(self, llm: LLM) -> None:
-        self.llm = llm
-        self.pending: queue.Queue[tuple[str, str]] = queue.Queue()
+    def __init__(self, controller: ChatController) -> None:
+        self.controller = controller
         self.table_widgets: list[tk.Widget] = []
 
         self.root = tk.Tk()
-        self.root.title(f"Ollama Chat - {self.llm.model}")
+        self.root.title(f"Ollama Chat - {self.controller.model}")
         self.root.geometry("860x720")
         self.root.minsize(560, 480)
 
@@ -69,7 +66,7 @@ class ChatGui:
 
         title = tk.Label(
             header,
-            text=self.llm.model,
+            text=self.controller.model,
             bg=self.colors["panel"],
             fg=self.colors["text"],
             font=("TkDefaultFont", 13, "bold"),
@@ -215,27 +212,13 @@ class ChatGui:
         self.entry.delete("1.0", tk.END)
         self._append_user_message(message)
         self._set_busy(True)
-
-        thread = threading.Thread(target=self._ask_llm, args=(message,), daemon=True)
-        thread.start()
+        self.controller.send_message(message)
         return "break"
 
-    def _ask_llm(self, message: str) -> None:
-        try:
-            response = self.llm.chat(message)
-        except Exception as exc:
-            response = f"**Error:** {exc}"
-        self.pending.put(("assistant", response))
-
     def _poll_pending(self) -> None:
-        try:
-            while True:
-                role, message = self.pending.get_nowait()
-                if role == "assistant":
-                    self._append_assistant_message(message)
-                    self._set_busy(False)
-        except queue.Empty:
-            pass
+        for response in self.controller.get_responses():
+            self._append_assistant_message(response.content)
+            self._set_busy(False)
         self.root.after(100, self._poll_pending)
 
     def _set_busy(self, busy: bool) -> None:
@@ -247,14 +230,14 @@ class ChatGui:
             self.entry.focus_set()
 
     def _clear_chat(self) -> None:
-        self.llm.clear()
+        self.controller.clear()
         for widget in self.table_widgets:
             widget.destroy()
         self.table_widgets.clear()
         self.chat.configure(state=tk.NORMAL)
         self.chat.delete("1.0", tk.END)
         self.chat.configure(state=tk.DISABLED)
-        self.status.configure(text="Ready")
+        self._set_busy(False)
 
     def _append_user_message(self, message: str) -> None:
         self._with_chat_enabled(lambda: self._insert_user_message(message))
@@ -462,12 +445,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    llm = LLM(
+    controller = ChatController(
         model=args.model,
         system_prompt=args.system_prompt,
         thinking=not args.no_thinking,
     )
-    ChatGui(llm).run()
+    ChatGui(controller).run()
 
 
 if __name__ == "__main__":
