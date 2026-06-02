@@ -1,0 +1,7 @@
+duckdb
+ipython
+matplotlib
+ollama
+pandas
+rdflib
+swipl
