@@ -152,7 +152,7 @@ class ChatController:
 
     def __init__(
         self,
-        model: str = "gemma4:e4b",
+        model: str = "gemma4:e2b",
         system_prompt: str | None = None,
         thinking: bool = True,
         kb_path: str | Path | None = None,
