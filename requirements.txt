@@ -4,4 +4,3 @@ matplotlib
 ollama
 pandas
 rdflib
-swipl
