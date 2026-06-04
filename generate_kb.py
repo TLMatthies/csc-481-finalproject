@@ -52,6 +52,12 @@ def generate(json_path: str = "data/clubs.json",
     json_path = base / json_path
     out_path  = base / out_path
 
+    if not json_path.exists():
+        raise FileNotFoundError(
+            f"clubs.json not found at expected path: {json_path.resolve()}. "
+            "Place the data file there and re-run."
+        )
+
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
     with open(json_path, encoding="utf-8") as f:

@@ -12,13 +12,60 @@ from tempfile import NamedTemporaryFile
 from llm import LLM
 
 
-KB_SYSTEM_PROMPT = """You can answer questions about Cal Poly dance clubs by using the query_clubs_kb tool.
-Use the tool for factual club questions, then summarize the results clearly for the user.
-When discussing the results of a query, check for the display name of the club (using club(Club, DisplayName)), and talk about the club in terms of its display name. Don't mention the variable name (such as lion_dance_team_ldt).
+KB_SYSTEM_PROMPT = """CRITICAL RULE — YOU MUST FOLLOW THIS WITHOUT EXCEPTION:
+For ANY factual question about Cal Poly dance clubs — hours, performances, style, culture, dues,
+skill level, travel, competitions, or any other club property — you MUST call query_clubs_kb.
+Never answer from memory or training data. The knowledge base is the only authoritative source.
+If you are unsure whether a fact is in the KB, call query_clubs_kb to check.
 
-The Prolog KB is queried with read-only Prolog goals. Use variables that begin with uppercase letters, atoms in lowercase snake_case, and conjunctions with commas.
+═══════════════════════════════════════════════════════════
+SEQUENTIAL QUERY RULE — ONE CLUB PER CALL WHEN COMPARING
+═══════════════════════════════════════════════════════════
 
-Either make queries to get a list of clubs, or query for specific data about one club. For example, if the user asks for the hours practiced per week for two different clubs, make a query for one club, then the other club.
+When a user asks you to compare the SAME property across TWO OR MORE specific clubs,
+issue ONE separate query_clubs_kb call for each club. Do NOT try to retrieve both
+values in one conjunctive query.
+
+WHY THIS MATTERS — PROLOG UNIFICATION:
+Prolog uses unification: when you write a variable like "Hours", Prolog binds it to
+the first value it finds and then requires every other use of "Hours" in that same query
+to equal that same value. If lion_dance_team_ldt practices 2 hours/week and
+shan_wu_dance_team practices 4 hours/week, a query that uses "Hours" for both clubs
+asks Prolog: "find Hours such that Hours = 2 AND Hours = 4 simultaneously." That is
+impossible, so the query returns zero rows — silently, with no error message.
+
+THE MULTI-VARIABLE ANTI-PATTERN (DO NOT DO THIS):
+  hours_per_week(lion_dance_team_ldt, Hours), hours_per_week(shan_wu_dance_team, Hours)
+This reuses the variable Hours for two different specific clubs. Prolog must find one
+value that satisfies both at once, which almost always returns zero rows, because the
+two clubs typically have different values. The response looks like neither club has any
+data, which is wrong.
+
+CORRECT PATTERN — EXAMPLE 1 (distinct variables in one call):
+  Call 1: hours_per_week(lion_dance_team_ldt, LionHours), club(lion_dance_team_ldt, LionName)
+  Call 2: hours_per_week(shan_wu_dance_team, ShanWuHours), club(shan_wu_dance_team, ShanWuName)
+Each call uses its own uniquely named variable (LionHours, ShanWuHours). Prolog can
+bind each independently and both calls return results.
+
+CORRECT PATTERN — EXAMPLE 2 (performances comparison):
+  Call 1: performances_per_year(kaba_modern_cal_poly, KabaPerfs), club(kaba_modern_cal_poly, KabaName)
+  Call 2: performances_per_year(ballroom_dance_club, BallroomPerfs), club(ballroom_dance_club, BallroomName)
+Again, KabaPerfs and BallroomPerfs are distinct variables — Prolog binds them
+independently and both calls succeed.
+
+DISPLAY NAME RULE:
+ALWAYS fetch the club's display name alongside any other data you retrieve.
+Use the fact: club(Club, DisplayName)
+Use DisplayName in every user-facing reply. NEVER expose the internal atom
+(e.g., lion_dance_team_ldt, shan_wu_dance_team) to the user. The display name
+is the human-readable club name such as "Lion Dance Team @ LDT" or "Shan Wu Dance Team".
+
+═══════════════════════════════════════════════════════════
+PROLOG QUERY SYNTAX REFERENCE
+═══════════════════════════════════════════════════════════
+
+The Prolog KB is queried with read-only Prolog goals. Use variables that begin with
+uppercase letters, atoms in lowercase snake_case, and conjunctions with commas.
 
 Available fact predicates:
 - club(Club, DisplayName)
@@ -47,6 +94,15 @@ Available rule predicates:
 - free_to_join(Club)
 - has_mentorship(Club)
 - competitive_travel(Club)
+- club_by_name(SearchName, Club, DisplayName)  ← use this to look up a club by its human-readable name
+
+LOOKING UP A CLUB BY NAME:
+When the user refers to a club by its human-readable name (e.g., "PCE Kasayahan", "Lion Dance Team"),
+use club_by_name to resolve it to its atom before querying other predicates:
+  club_by_name('PCE Kasayahan', Club, DisplayName)
+  club_by_name('Lion Dance Team (LDT)', Club, DisplayName)
+Do NOT use club(Club, DisplayName), club(Club, "Some Name") — that is invalid Prolog syntax.
+Do NOT guess atom names like pce_kasayahan — always use club_by_name to resolve them.
 
 Available comparison operators:
 - Hours =< 4
@@ -61,8 +117,6 @@ Useful examples:
 - recommend(hip_hop, beginner, Club), club(Club, Name)
 - low_commitment(3, Club), beginner_friendly(Club), club(Club, Name)
 - free_to_join(Club), club(Club, Name)
-- To ask for the same property of multiple specific clubs, use different variables:
-  hours_per_week(lion_dance_team_ldt, LionHours), hours_per_week(shan_wu_dance_team, ShanWuHours)
 """
 
 PROLOG_QUERY_HELPER = """
@@ -93,6 +147,7 @@ allowed(recommend, 3).
 allowed(free_to_join, 1).
 allowed(has_mentorship, 1).
 allowed(competitive_travel, 1).
+allowed(club_by_name, 3).
 allowed(=<, 2).
 allowed(>=, 2).
 allowed(<, 2).
@@ -267,9 +322,11 @@ class ChatController:
         return self._format_rows(rows)
 
     def _run_prolog_query(self, query: str) -> tuple[list[dict[str, str]] | None, str | None]:
-        with NamedTemporaryFile("w", suffix=".pl", delete=True) as helper:
+        helper = NamedTemporaryFile("w", suffix=".pl", delete=False)
+        try:
             helper.write(PROLOG_QUERY_HELPER)
             helper.flush()
+            helper.close()
             try:
                 completed = subprocess.run(
                     [
@@ -283,13 +340,15 @@ class ChatController:
                     capture_output=True,
                     input=query,
                     text=True,
-                    timeout=5,
+                    timeout=10,
                     check=False,
                 )
             except FileNotFoundError:
                 return None, "SWI-Prolog is not installed or swipl is not on PATH."
             except subprocess.TimeoutExpired:
                 return None, "The Prolog query timed out."
+        finally:
+            Path(helper.name).unlink(missing_ok=True)
 
         output = completed.stdout.strip()
         if completed.returncode != 0:

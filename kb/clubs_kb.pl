@@ -237,7 +237,13 @@ skill_level(drag_club, beginner).
 skill_level(drag_club, intermediate).
 skill_level(drag_club, advanced).
 
-%% ── Rules ──────────────────────────────────────────────────────────
+%% Look up a club by its display name (case-sensitive exact match).
+%% ?- club_by_name('PCE Kasayahan', Club, DisplayName).
+club_by_name(SearchName, Club, DisplayName) :-
+    club(Club, DisplayName),
+    DisplayName = SearchName.
+
+
 
 %% Which clubs perform a given dance style?
 %% ?- clubs_with_style(hip_hop, X).

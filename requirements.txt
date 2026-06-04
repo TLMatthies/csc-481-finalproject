@@ -1,6 +1,8 @@
+ollama>=0.4
+
+# dev / exploration
 duckdb
 ipython
 matplotlib
-ollama
 pandas
 rdflib
