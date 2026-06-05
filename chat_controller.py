@@ -20,6 +20,9 @@ The Prolog KB is queried with read-only Prolog goals. Use variables that begin w
 
 Either make queries to get a list of clubs, or query for specific data about one club. For example, if the user asks for the hours practiced per week for two different clubs, make a query for one club, then the other club.
 
+If a large query fails or returns nothing, try breaking it into smaller queries.
+Keep in mind that string literals should be done with ' (single quotes).
+
 Available fact predicates:
 - club(Club, DisplayName)
 - alias(Club, Alias)
@@ -171,7 +174,7 @@ class ChatController:
 
     def __init__(
         self,
-        model: str = "gemma4:e2b",
+        model: str = "gemma4:e4b",
         system_prompt: str | None = None,
         thinking: bool = True,
         kb_path: str | Path | None = None,

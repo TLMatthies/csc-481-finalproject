@@ -16,7 +16,7 @@ class ChatGui:
         self.query_widgets: list[tk.Widget] = []
 
         self.root = tk.Tk()
-        self.root.title(f"Ollama Chat - {self.controller.model}")
+        self.root.title(f"Dance Bot")
         self.root.geometry("860x720")
         self.root.minsize(560, 480)
 

@@ -15,13 +15,11 @@ class LLM:
         system_prompt: str | None = None,
         thinking: bool = True,
         tools: dict[str, Callable[..., object]] | None = None,
-        max_tool_rounds: int = 8,
     ) -> None:
         self.model = model
         self.system_prompt = system_prompt
         self.thinking = thinking
         self.tools = tools or {}
-        self.max_tool_rounds = max_tool_rounds
         self._messages: list[Any] = []
         self.clear()
 
@@ -29,7 +27,7 @@ class LLM:
         """Send a user message to the model and return the assistant response."""
         self._messages.append({"role": "user", "content": user_chat})
 
-        for _ in range(self.max_tool_rounds + 1):
+        while True:
             response = self._chat_completion()
             message = self._get_message(response)
             self._messages.append(message)
@@ -48,8 +46,6 @@ class LLM:
                         "content": str(result),
                     }
                 )
-
-        return "The model requested too many tool calls before producing a response."
 
     def clear(self) -> None:
         """Clear conversation history while preserving the configured system prompt."""
