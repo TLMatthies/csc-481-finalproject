@@ -530,7 +530,7 @@ class ChatGui:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Chat with an Ollama model.")
-    parser.add_argument("--model", default="gemma4:e2b")
+    parser.add_argument("--model", default="qwen3.5:4b")
     parser.add_argument("--system-prompt", default=None)
     parser.add_argument("--no-thinking", action="store_true")
     return parser.parse_args()
